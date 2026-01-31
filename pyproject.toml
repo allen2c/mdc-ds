@@ -1,26 +1,20 @@
 [project]
 authors = [{ name = "Allen Chou", email = "f1470891079@gmail.com" }]
-dependencies = [
-  "dictpress (>=0.3.0)",
-  "openai (>=1,<2)",
-  "openai-agents (>=0.1.0,<1.0.0)",
-  "pydantic (>=2)",
-  "str-or-none",
-]
-description = "AllenChou's Python template."
+dependencies = ["pydantic (>=2)", "str-or-none"]
+description = "Mozilla Data Collective API client with some utilities."
 license = { text = "MIT" }
-name = "ac-py-template"
+name = "cv-ds"
 readme = "README.md"
 requires-python = ">=3.11,<4"
 version = "0.1.0"
 
 [project.urls]
-Homepage = "https://github.com/allen2c/ac-py-template"
-"PyPI" = "https://pypi.org/project/ac-py-template/"
-Repository = "https://github.com/allen2c/ac-py-template"
+Homepage = "https://github.com/allen2c/cv-ds"
+"PyPI" = "https://pypi.org/project/cv-ds/"
+Repository = "https://github.com/allen2c/cv-ds"
 
 [tool.poetry]
-packages = [{ include = "ac_py_template" }]
+packages = [{ include = "cv_ds" }]
 
 [tool.poetry.extras]
 all = []
@@ -28,8 +22,10 @@ all = []
 [tool.poetry.group.dev.dependencies]
 black = { extras = ["jupyter"], version = "*" }
 codepress = "*"
+datasets = { version = "*", optional = true }
 isort = "*"
 poetry-plugin-export = "*"
+pydub = { version = "*", optional = true }
 pytest = "*"
 pytest-asyncio = "*"
 pytest-cov = "*"
@@ -38,6 +34,7 @@ pytest-xdist = "*"
 rich = "*"
 rich-color-support = "*"
 setuptools = "*"
+soundfile = { version = "*", optional = true }
 twine = "*"
 
 [tool.isort]

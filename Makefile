@@ -2,22 +2,15 @@
 format:
 	@isort . \
 		--skip setup.py \
-		--skip .venv \
-		--skip build \
-		--skip dist \
-		--skip __pycache__ \
-		--skip docs \
-		--skip static \
-		--skip .conda
+		--skip-glob '*/.venv/*' \
+		--skip-glob '*/build/*' \
+		--skip-glob '*/dist/*' \
+		--skip-glob '*/__pycache__/*' \
+		--skip-glob '*/docs/*' \
+		--skip-glob '*/static/*' \
+		--skip-glob '*/.conda/*'
 	@black . \
-		--exclude setup.py \
-		--exclude .venv \
-		--exclude build \
-		--exclude dist \
-		--exclude __pycache__ \
-		--exclude docs \
-		--exclude static \
-		--exclude .conda
+		--exclude '/(setup\.py|\.venv|build|dist|__pycache__|docs|static|\.conda)/'
 
 install:
 	poetry install --all-extras --all-groups
