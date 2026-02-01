@@ -1,6 +1,12 @@
 [project]
 authors = [{ name = "Allen Chou", email = "f1470891079@gmail.com" }]
-dependencies = ["httpx", "pydantic (>=2)", "pydantic-settings", "str-or-none"]
+dependencies = [
+  "aiofiles",
+  "httpx",
+  "pydantic (>=2)",
+  "pydantic-settings",
+  "str-or-none",
+]
 description = "Mozilla Data Collective API client with some utilities."
 license = { text = "MIT" }
 name = "cv-ds"

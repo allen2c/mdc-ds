@@ -1,3 +1,4 @@
+aiofiles==25.1.0 ; python_version >= "3.11" and python_version < "4"
 aiohappyeyeballs==2.6.1 ; python_version >= "3.11" and python_version < "4"
 aiohttp==3.13.3 ; python_version >= "3.11" and python_version < "4"
 aiosignal==1.4.0 ; python_version >= "3.11" and python_version < "4"
