@@ -75,52 +75,32 @@ class MozillaDataCollectiveClient(httpx.Client):
         response.raise_for_status()
         return DownloadSession.model_validate(response.json())
 
-    def download_dataset(
-        self, dataset_id: str, *, output: Path | str | None = None
-    ) -> Path:
-        import shutil
-
-        from mdc_ds.utils.ensure_output import ensure_output
-
+    def download_dataset(self, dataset_id: str) -> Path:
         ds_details = self.get_dataset_details(dataset_id)
-        cache_filepath = self.cache_dir.joinpath(f"{ds_details.id}.tar.gz")
+        cache_filepath = self.cache_dir.joinpath(f"{ds_details.slug}")
 
         if cache_filepath.is_file():
-            logger.debug(f"Dataset {dataset_id} found in cache")
-        else:
-            download_session = self.get_dataset_download_session(ds_details.id)
-            cache_filepath = self.download_dataset_by_url(
-                download_session, output=cache_filepath
-            )
-
-        if output is None:
+            logger.debug(f"Dataset {ds_details.slug} found in cache")
             return cache_filepath
         else:
-            output = ensure_output(output=output)
-            shutil.copy(cache_filepath, output)
-            return output
+            download_session = self.get_dataset_download_session(ds_details.id)
+            downloaded_filepath = self.download_dataset_session(download_session)
+            if cache_filepath.exists() or os.path.lexists(cache_filepath):
+                cache_filepath.unlink()
+            os.symlink(downloaded_filepath, cache_filepath)
+            return downloaded_filepath
 
-    def download_dataset_by_url(
-        self, download_url: DownloadSession | str, *, output: Path | str
-    ) -> Path:
+    def download_dataset_session(self, download_session: DownloadSession) -> Path:
         """Downloads a dataset file from the provided URL and returns the path to the downloaded file."""  # noqa: E501
 
         from tqdm import tqdm
 
-        from mdc_ds.utils.ensure_output import ensure_output
-
         # Extract URL and determine output path (existing logic)
-        url = (
-            download_url if isinstance(download_url, str) else download_url.downloadUrl
-        )
-        output = ensure_output(output=output)
+        url = download_session.downloadUrl
+        output = self.cache_dir.joinpath(download_session.filename)
 
         # Get total size for progress tracking
-        total_size = (
-            download_url.sizeBytes
-            if isinstance(download_url, DownloadSession)
-            else None
-        )
+        total_size = download_session.sizeBytes
 
         # Stream download with progress tracking
         with self.stream("GET", url, auth=None) as response:
@@ -133,7 +113,7 @@ class MozillaDataCollectiveClient(httpx.Client):
             with (
                 open(output, "wb") as f,
                 tqdm(
-                    desc=f"Downloading {output.name}",
+                    desc=f"Downloading {download_session.filename}",
                     total=total_size,
                     unit="B",
                     unit_scale=True,
@@ -144,7 +124,7 @@ class MozillaDataCollectiveClient(httpx.Client):
                     f.write(chunk)
                     pbar.update(len(chunk))
 
-        logger.info(f"Downloaded dataset to {output}")
+        logger.info(f"Downloaded dataset to {download_session.filename}")
         return output
 
 
@@ -195,55 +175,35 @@ class MozillaDataCollectiveAsyncClient(httpx.AsyncClient):
         response.raise_for_status()
         return DownloadSession.model_validate(await response.json())
 
-    async def download_dataset(
-        self, dataset_id: str, *, output: Path | str | None = None
-    ) -> Path:
-        import shutil
-
-        from mdc_ds.utils.ensure_output import ensure_output
-
+    async def download_dataset(self, dataset_id: str) -> Path:
         ds_details = await self.get_dataset_details(dataset_id)
-        cache_filepath = self.cache_dir.joinpath(f"{ds_details.id}.tar.gz")
+        cache_filepath = self.cache_dir.joinpath(f"{ds_details.slug}")
 
         if cache_filepath.is_file():
-            logger.debug(f"Dataset {dataset_id} found in cache")
-        else:
-            download_session = await self.get_dataset_download_session(ds_details.id)
-            cache_filepath = await self.download_dataset_by_url(
-                download_session, output=cache_filepath
-            )
-
-        if output is None:
+            logger.debug(f"Dataset {ds_details.slug} found in cache")
             return cache_filepath
         else:
-            output = ensure_output(output=output)
-            shutil.copy(cache_filepath, output)
-            return output
+            download_session = await self.get_dataset_download_session(ds_details.id)
+            downloaded_filepath = await self.download_dataset_session(download_session)
+            if cache_filepath.exists() or os.path.lexists(cache_filepath):
+                cache_filepath.unlink()
+            os.symlink(downloaded_filepath, cache_filepath)
+            return downloaded_filepath
 
-    async def download_dataset_by_url(
-        self, download_url: DownloadSession | str, *, output: Path | str
-    ) -> Path:
+    async def download_dataset_session(self, download_session: DownloadSession) -> Path:
         """Downloads a dataset file from the provided URL and returns the path to the downloaded file."""  # noqa: E501
         import aiofiles
         from tqdm.asyncio import tqdm as async_tqdm
 
-        from mdc_ds.utils.ensure_output import ensure_output
-
         # Extract URL and determine output path
-        url = (
-            download_url if isinstance(download_url, str) else download_url.downloadUrl
-        )
-        output = ensure_output(output=output)
+        url = download_session.downloadUrl
+        download_filepath = self.cache_dir.joinpath(download_session.filename)
 
         # Get total size for progress tracking
-        total_size = (
-            download_url.sizeBytes
-            if isinstance(download_url, DownloadSession)
-            else None
-        )
+        total_size = download_session.sizeBytes
 
         # Stream download with async progress tracking
-        logger.info(f"Downloading dataset from {url} to {output}")
+        logger.info(f"Downloading dataset {download_session.filename}")
         async with self.stream("GET", url) as response:
             response.raise_for_status()
 
@@ -252,9 +212,9 @@ class MozillaDataCollectiveAsyncClient(httpx.AsyncClient):
                 total_size = int(response.headers.get("content-length", 0))
 
             # Async file writing with progress tracking
-            async with aiofiles.open(output, "wb") as f:
+            async with aiofiles.open(download_filepath, "wb") as f:
                 with async_tqdm(
-                    desc=f"Downloading {output.name}",
+                    desc=f"Downloading {download_session.filename}",
                     total=total_size,
                     unit="B",
                     unit_scale=True,
@@ -264,5 +224,5 @@ class MozillaDataCollectiveAsyncClient(httpx.AsyncClient):
                         await f.write(chunk)
                         pbar.update(len(chunk))
 
-        logger.info(f"Downloaded dataset to {output}")
-        return output
+        logger.info(f"Downloaded dataset to {download_filepath}")
+        return download_filepath
