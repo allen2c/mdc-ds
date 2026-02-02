@@ -29,7 +29,7 @@ all = []
 [tool.poetry.group.dev.dependencies]
 black = { extras = ["jupyter"], version = "*" }
 codepress = "*"
-datasets = { version = "*", optional = true }
+datasets = { version = "*", optional = true, extras = ["audio"] }
 isort = "*"
 poetry-plugin-export = "*"
 pydub = { version = "*", optional = true }
@@ -42,6 +42,8 @@ rich = "*"
 rich-color-support = "*"
 setuptools = "*"
 soundfile = { version = "*", optional = true }
+torch = { version = "*", optional = true }
+torchcodec = { version = "*", optional = true }
 twine = "*"
 
 [tool.isort]

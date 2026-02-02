@@ -6,7 +6,7 @@ from typing import Any, Generator
 
 import httpx
 
-from mdc_ds import DEFAULT_MDC_CACHE, MDC_API_KEY_NAME, MDC_CACHE_NAME
+from mdc_ds import DEFAULT_MDC_DOWNLOADS_CACHE, MDC_API_KEY_NAME, MDC_CACHE_NAME
 from mdc_ds.types.dataset_details import DatasetDetails
 from mdc_ds.types.download_session import DownloadSession
 
@@ -41,7 +41,7 @@ class MozillaDataCollectiveClient(httpx.Client):
             if not (api_key := os.getenv(MDC_API_KEY_NAME)):
                 raise ValueError(error_api_key_missing_msg)
         if cache_dir is None:
-            cache_dir = os.getenv(MDC_CACHE_NAME, None) or DEFAULT_MDC_CACHE
+            cache_dir = os.getenv(MDC_CACHE_NAME, None) or DEFAULT_MDC_DOWNLOADS_CACHE
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -77,27 +77,32 @@ class MozillaDataCollectiveClient(httpx.Client):
 
     def download_dataset(self, dataset_id: str) -> Path:
         ds_details = self.get_dataset_details(dataset_id)
-        cache_filepath = self.cache_dir.joinpath(f"{ds_details.slug}")
+        cache_filepath = self.cache_dir.joinpath(f"{ds_details.id}")
 
         if cache_filepath.is_file():
             logger.debug(f"Dataset {ds_details.slug} found in cache")
             return cache_filepath
         else:
             download_session = self.get_dataset_download_session(ds_details.id)
-            downloaded_filepath = self.download_dataset_session(download_session)
-            if cache_filepath.exists() or os.path.lexists(cache_filepath):
-                cache_filepath.unlink()
-            os.symlink(downloaded_filepath, cache_filepath)
-            return downloaded_filepath
+            downloaded_filepath = self.download_dataset_session(
+                download_session, cache_filepath
+            )
+            alias_filepath = self.cache_dir.joinpath(download_session.filename)
+            alias_filepath.unlink(missing_ok=True)
+            os.symlink(downloaded_filepath, alias_filepath)
 
-    def download_dataset_session(self, download_session: DownloadSession) -> Path:
+            return cache_filepath
+
+    def download_dataset_session(
+        self, download_session: DownloadSession, output: Path | str
+    ) -> Path:
         """Downloads a dataset file from the provided URL and returns the path to the downloaded file."""  # noqa: E501
 
         from tqdm import tqdm
 
         # Extract URL and determine output path (existing logic)
         url = download_session.downloadUrl
-        output = self.cache_dir.joinpath(download_session.filename)
+        output = Path(output)
 
         # Get total size for progress tracking
         total_size = download_session.sizeBytes
@@ -141,7 +146,7 @@ class MozillaDataCollectiveAsyncClient(httpx.AsyncClient):
             if not (api_key := os.getenv(MDC_API_KEY_NAME)):
                 raise ValueError(error_api_key_missing_msg)
         if cache_dir is None:
-            cache_dir = os.getenv(MDC_CACHE_NAME, None) or DEFAULT_MDC_CACHE
+            cache_dir = os.getenv(MDC_CACHE_NAME, None) or DEFAULT_MDC_DOWNLOADS_CACHE
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -177,27 +182,32 @@ class MozillaDataCollectiveAsyncClient(httpx.AsyncClient):
 
     async def download_dataset(self, dataset_id: str) -> Path:
         ds_details = await self.get_dataset_details(dataset_id)
-        cache_filepath = self.cache_dir.joinpath(f"{ds_details.slug}")
+        cache_filepath = self.cache_dir.joinpath(f"{ds_details.id}")
 
         if cache_filepath.is_file():
             logger.debug(f"Dataset {ds_details.slug} found in cache")
             return cache_filepath
         else:
             download_session = await self.get_dataset_download_session(ds_details.id)
-            downloaded_filepath = await self.download_dataset_session(download_session)
-            if cache_filepath.exists() or os.path.lexists(cache_filepath):
-                cache_filepath.unlink()
-            os.symlink(downloaded_filepath, cache_filepath)
-            return downloaded_filepath
+            downloaded_filepath = await self.download_dataset_session(
+                download_session, cache_filepath
+            )
+            alias_filepath = self.cache_dir.joinpath(download_session.filename)
+            alias_filepath.unlink(missing_ok=True)
+            os.symlink(downloaded_filepath, alias_filepath)
 
-    async def download_dataset_session(self, download_session: DownloadSession) -> Path:
+            return cache_filepath
+
+    async def download_dataset_session(
+        self, download_session: DownloadSession, output: Path | str
+    ) -> Path:
         """Downloads a dataset file from the provided URL and returns the path to the downloaded file."""  # noqa: E501
         import aiofiles
         from tqdm.asyncio import tqdm as async_tqdm
 
         # Extract URL and determine output path
         url = download_session.downloadUrl
-        download_filepath = self.cache_dir.joinpath(download_session.filename)
+        download_filepath = Path(output)
 
         # Get total size for progress tracking
         total_size = download_session.sizeBytes
