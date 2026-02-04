@@ -18,5 +18,12 @@ def get_dataset(
 
         return get_dataset_zh_tw(name=name, split=split)
 
+    elif name == "common-voice-v24-english-en-au-subset-fo-0447e8a6":
+        from .common_voice_v24_english_en_au_subset_fo_0447e8a6 import (
+            get_dataset as get_dataset_en_au,
+        )
+
+        return get_dataset_en_au(name=name, split=split)
+
     else:
         raise ValueError(f"Invalid dataset name: {name}")
