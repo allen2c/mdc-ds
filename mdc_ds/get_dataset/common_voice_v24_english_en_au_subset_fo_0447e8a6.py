@@ -118,6 +118,7 @@ def get_dataset(
             "audio_path",
         ],  # We don't need the path anymore after extraction
         desc="Decoding train audio",
+        keep_in_memory=True,
     )
 
     logger.debug("Processing dev dataset audio in parallel...")
@@ -126,6 +127,7 @@ def get_dataset(
         num_proc=4,
         remove_columns=["client_id", "audio_path"],
         desc="Decoding dev audio",
+        keep_in_memory=True,
     )
 
     logger.debug("Processing test dataset audio in parallel...")
@@ -134,6 +136,7 @@ def get_dataset(
         num_proc=4,
         remove_columns=["client_id", "audio_path"],
         desc="Decoding test audio",
+        keep_in_memory=True,
     )
 
     # 4. Cast to target features (Optional but recommended to match original intent)
