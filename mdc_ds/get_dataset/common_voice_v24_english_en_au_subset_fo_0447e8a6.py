@@ -53,6 +53,10 @@ def get_metadata(downloaded_filepath: Path | str) -> List[ManifestItemWithClient
 
         # Convert to list of dicts immediately for Dataset.from_list
         for train_row in train_df.itertuples(index=False):
+            if train_row.sentence is None or train_row.path is None:
+                logger.error(f"Skipping row with empty sentence or path: {train_row}")
+                continue
+
             full_audio_path = str(
                 tar_root.joinpath("audio_files").joinpath(train_row.path)  # type: ignore  # noqa: E501
             )

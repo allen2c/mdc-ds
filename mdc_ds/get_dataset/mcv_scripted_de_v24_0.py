@@ -40,8 +40,16 @@ def get_metadata(
         dev_df = pd.read_csv(dev_tar_filepath, sep="\t")
         test_df = pd.read_csv(test_tar_filepath, sep="\t")
 
+        train_df = train_df.where(pd.notnull(train_df), None)
+        dev_df = dev_df.where(pd.notnull(dev_df), None)
+        test_df = test_df.where(pd.notnull(test_df), None)
+
         # Convert to list of dicts immediately for Dataset.from_list
         for train_row in train_df.itertuples(index=False):
+            if train_row.sentence is None or train_row.path is None:
+                logger.error(f"Skipping row with empty sentence or path: {train_row}")
+                continue
+
             full_audio_path = str(
                 tar_root.joinpath("clips").joinpath(train_row.path)  # type: ignore
             )
@@ -54,6 +62,10 @@ def get_metadata(
             )
 
         for dev_row in dev_df.itertuples(index=False):
+            if dev_row.sentence is None or dev_row.path is None:
+                logger.error(f"Skipping row with empty sentence or path: {dev_row}")
+                continue
+
             full_audio_path = str(
                 tar_root.joinpath("clips").joinpath(dev_row.path)  # type: ignore
             )
@@ -66,6 +78,10 @@ def get_metadata(
             )
 
         for test_row in test_df.itertuples(index=False):
+            if test_row.sentence is None or test_row.path is None:
+                logger.error(f"Skipping row with empty sentence or path: {test_row}")
+                continue
+
             full_audio_path = str(
                 tar_root.joinpath("clips").joinpath(test_row.path)  # type: ignore
             )
