@@ -3,7 +3,7 @@ from typing import Final
 
 from .get_dataset import DatasetNameType, get_dataset, implemented_dataset_names
 
-__version__: Final[str] = "0.2.0"
+__version__: Final[str] = "0.3.0"
 
 MDC_API_KEY_NAME: Final[str] = "MDC_API_KEY"
 MDC_CACHE_NAME: Final[str] = "MDC_CACHE"

@@ -2,7 +2,7 @@ import logging
 import os
 import tarfile
 from pathlib import Path
-from typing import List, Literal, Tuple, TypedDict
+from typing import List, Literal, Tuple
 
 import pandas as pd
 from datasets import Dataset, DatasetDict
@@ -42,7 +42,7 @@ def get_metadata(
 
         # Convert to list of dicts immediately for Dataset.from_list
         for train_row in train_df.itertuples(index=False):
-            if train_row.sentence is None or train_row.path is None:
+            if train_row.sentence is None or train_row.path is None:  # type: ignore
                 logger.error(f"Skipping row with empty sentence or path: {train_row}")
                 continue
 
@@ -58,7 +58,7 @@ def get_metadata(
             )
 
         for dev_row in dev_df.itertuples(index=False):
-            if dev_row.sentence is None or dev_row.path is None:
+            if dev_row.sentence is None or dev_row.path is None:  # type: ignore
                 logger.error(f"Skipping row with empty sentence or path: {dev_row}")
                 continue
 
@@ -74,7 +74,7 @@ def get_metadata(
             )
 
         for test_row in test_df.itertuples(index=False):
-            if test_row.sentence is None or test_row.path is None:
+            if test_row.sentence is None or test_row.path is None:  # type: ignore
                 logger.error(f"Skipping row with empty sentence or path: {test_row}")
                 continue
 
