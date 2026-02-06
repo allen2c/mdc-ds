@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Final
 
-from .get_dataset import get_dataset
+from .get_dataset import DatasetNameType, get_dataset, implemented_dataset_names
 
 __version__: Final[str] = "0.2.0"
 
@@ -15,4 +15,8 @@ DEFAULT_MDC_DATASETS_CACHE: Final[Path] = Path(
     "~/.cache/huggingface/datasets"
 ).expanduser()
 
-__all__ = ["get_dataset"]
+__all__ = [
+    "DatasetNameType",
+    "get_dataset",
+    "implemented_dataset_names",
+]
