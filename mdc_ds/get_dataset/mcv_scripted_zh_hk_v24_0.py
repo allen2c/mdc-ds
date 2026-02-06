@@ -9,17 +9,12 @@ from datasets import Dataset, DatasetDict
 from google_language_support import LanguageCodes
 
 from mdc_ds.types.feature import feature
+from mdc_ds.types.manifest_item import ManifestItem
 from mdc_ds.utils.audio_processor import AudioProcessor
 
 logger = logging.getLogger(__name__)
 
 slug_name = "mcv-scripted-zh-HK-v24.0"
-
-
-class ManifestItem(TypedDict):
-    audio_path: str
-    text: str
-    language: LanguageCodes
 
 
 def get_metadata(

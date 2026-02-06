@@ -2,13 +2,14 @@ import logging
 import os
 import tarfile
 from pathlib import Path
-from typing import List, Literal, TypedDict
+from typing import List, Literal
 
 import pandas as pd
 from datasets import Dataset, DatasetDict
 from google_language_support import LanguageCodes
 
 from mdc_ds.types.feature import feature
+from mdc_ds.types.manifest_item import ManifestItemWithClientId
 from mdc_ds.utils.audio_processor import AudioProcessor
 from mdc_ds.utils.split_dataset_balanced_by_speaker import (
     split_dataset_balanced_by_speaker,
@@ -19,16 +20,9 @@ logger = logging.getLogger(__name__)
 slug_name = "common-voice-v24-english-en-au-subset-fo-0447e8a6"
 
 
-class TrainManifest(TypedDict):
-    client_id: str
-    audio_path: str
-    text: str
-    language: LanguageCodes
-
-
-def get_metadata(downloaded_filepath: Path | str) -> List[TrainManifest]:
+def get_metadata(downloaded_filepath: Path | str) -> List[ManifestItemWithClientId]:
     tar_root = Path("commonvoice-v24_en-AU")
-    train_manifests: List[TrainManifest] = []
+    train_manifests: List[ManifestItemWithClientId] = []
 
     # 1. Parse TSV files to build metadata lists (Lightweight)
     # We open tar only to get the TSV files initially
