@@ -110,7 +110,7 @@ def get_dataset(
     logger.debug("Processing train dataset audio in parallel...")
     train_ds = train_ds.map(
         audio_processor,
-        num_proc=4,
+        num_proc=8,
         remove_columns=[
             "client_id",
             "audio_path",
@@ -122,7 +122,7 @@ def get_dataset(
     logger.debug("Processing dev dataset audio in parallel...")
     dev_ds = dev_ds.map(
         audio_processor,
-        num_proc=4,
+        num_proc=8,
         remove_columns=["client_id", "audio_path"],
         desc="Decoding dev audio",
         keep_in_memory=True,
@@ -131,7 +131,7 @@ def get_dataset(
     logger.debug("Processing test dataset audio in parallel...")
     test_ds = test_ds.map(
         audio_processor,
-        num_proc=4,
+        num_proc=8,
         remove_columns=["client_id", "audio_path"],
         desc="Decoding test audio",
         keep_in_memory=True,
