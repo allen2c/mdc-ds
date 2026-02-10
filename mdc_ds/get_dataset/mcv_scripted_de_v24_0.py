@@ -1,3 +1,4 @@
+import csv
 import logging
 import os
 import tarfile
@@ -36,9 +37,15 @@ def get_metadata(
         if not train_tar_filepath or not dev_tar_filepath or not test_tar_filepath:
             raise ValueError("Train, dev, or test tar file not found")
 
-        train_df = pd.read_csv(train_tar_filepath, sep="\t")
-        dev_df = pd.read_csv(dev_tar_filepath, sep="\t")
-        test_df = pd.read_csv(test_tar_filepath, sep="\t")
+        train_df = pd.read_csv(
+            train_tar_filepath, sep="\t", dtype=str, quoting=csv.QUOTE_NONE
+        )
+        dev_df = pd.read_csv(
+            dev_tar_filepath, sep="\t", dtype=str, quoting=csv.QUOTE_NONE
+        )
+        test_df = pd.read_csv(
+            test_tar_filepath, sep="\t", dtype=str, quoting=csv.QUOTE_NONE
+        )
 
         train_df = train_df.where(pd.notnull(train_df), None)
         dev_df = dev_df.where(pd.notnull(dev_df), None)
@@ -46,49 +53,65 @@ def get_metadata(
 
         # Convert to list of dicts immediately for Dataset.from_list
         for train_row in train_df.itertuples(index=False):
-            if train_row.sentence is None or train_row.path is None:  # type: ignore
-                logger.error(f"Skipping row with empty sentence or path: {train_row}")
+            sentence = str(train_row.sentence) if train_row.sentence is not None else ""  # type: ignore  # noqa: E501
+            path = str(train_row.path) if train_row.path is not None else ""  # type: ignore  # noqa: E501
+
+            if (
+                not sentence
+                or sentence.lower() == "nan"
+                or not path
+                or path.lower() == "nan"
+            ):
+                logger.warning(f"Skipping dirty row: {train_row}")
                 continue
 
-            full_audio_path = str(
-                tar_root.joinpath("clips").joinpath(train_row.path)  # type: ignore
-            )
+            full_audio_path = str(tar_root.joinpath("clips").joinpath(path))
             train_manifests.append(
                 {
                     "audio_path": full_audio_path,
-                    "text": train_row.sentence,  # type: ignore
+                    "text": sentence,
                     "language": LanguageCodes.GERMAN,
                 }
             )
 
         for dev_row in dev_df.itertuples(index=False):
-            if dev_row.sentence is None or dev_row.path is None:  # type: ignore
-                logger.error(f"Skipping row with empty sentence or path: {dev_row}")
+            sentence = str(dev_row.sentence) if dev_row.sentence is not None else ""  # type: ignore  # noqa: E501
+            path = str(dev_row.path) if dev_row.path is not None else ""  # type: ignore  # noqa: E501
+            if (
+                not sentence
+                or sentence.lower() == "nan"
+                or not path
+                or path.lower() == "nan"
+            ):
+                logger.warning(f"Skipping dirty row: {dev_row}")
                 continue
 
-            full_audio_path = str(
-                tar_root.joinpath("clips").joinpath(dev_row.path)  # type: ignore
-            )
+            full_audio_path = str(tar_root.joinpath("clips").joinpath(path))
             dev_manifests.append(
                 {
                     "audio_path": full_audio_path,
-                    "text": dev_row.sentence,  # type: ignore
+                    "text": sentence,
                     "language": LanguageCodes.GERMAN,
                 }
             )
 
         for test_row in test_df.itertuples(index=False):
-            if test_row.sentence is None or test_row.path is None:  # type: ignore
-                logger.error(f"Skipping row with empty sentence or path: {test_row}")
+            sentence = str(test_row.sentence) if test_row.sentence is not None else ""  # type: ignore  # noqa: E501
+            path = str(test_row.path) if test_row.path is not None else ""  # type: ignore  # noqa: E501
+            if (
+                not sentence
+                or sentence.lower() == "nan"
+                or not path
+                or path.lower() == "nan"
+            ):
+                logger.warning(f"Skipping dirty row: {test_row}")
                 continue
 
-            full_audio_path = str(
-                tar_root.joinpath("clips").joinpath(test_row.path)  # type: ignore
-            )
+            full_audio_path = str(tar_root.joinpath("clips").joinpath(path))
             test_manifests.append(
                 {
                     "audio_path": full_audio_path,
-                    "text": test_row.sentence,  # type: ignore
+                    "text": sentence,
                     "language": LanguageCodes.GERMAN,
                 }
             )
