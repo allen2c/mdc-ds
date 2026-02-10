@@ -13,6 +13,8 @@ from tenacity import (
 )
 
 from mdc_ds import DEFAULT_MDC_DOWNLOADS_CACHE, MDC_API_KEY_NAME, MDC_CACHE_NAME
+from mdc_ds.client.exceptions import SessionExpiredError
+from mdc_ds.client.session_cache_manager import SessionCacheManager
 from mdc_ds.types.dataset_details import DatasetDetails
 from mdc_ds.types.download_session import DownloadSession
 
@@ -50,6 +52,9 @@ class MozillaDataCollectiveClient(httpx.Client):
             cache_dir = os.getenv(MDC_CACHE_NAME, None) or DEFAULT_MDC_DOWNLOADS_CACHE
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+
+        # Initialize session cache manager
+        self.session_cache = SessionCacheManager(self.cache_dir)
 
         auth = BearerAuth(api_key)
         headers = json.loads(json.dumps(kwargs.pop("headers", None) or {}))
@@ -90,22 +95,91 @@ class MozillaDataCollectiveClient(httpx.Client):
         return DownloadSession.model_validate(response.json())
 
     def download_dataset(self, dataset_id: str) -> Path:
+        """Download dataset with smart resume and automatic session refresh.
+
+        Features:
+        - Loads cached session if available and valid
+        - Automatically refreshes expired sessions (403 errors)
+        - Retries network errors up to 3 times with exponential backoff
+        - Cleans up session cache on successful completion
+        """
         ds_details = self.get_dataset_details(dataset_id)
         cache_filepath = self.cache_dir.joinpath(f"{ds_details.id}")
 
+        # Return early if already downloaded
         if cache_filepath.is_file():
             logger.debug(f"Dataset {ds_details.slug} found in cache")
             return cache_filepath
-        else:
-            download_session = self.get_dataset_download_session(ds_details.id)
-            downloaded_filepath = self.download_dataset_session(
-                download_session, cache_filepath
-            )
-            alias_filepath = self.cache_dir.joinpath(download_session.filename)
-            alias_filepath.unlink(missing_ok=True)
-            os.symlink(downloaded_filepath, alias_filepath)
 
-            return cache_filepath
+        max_retries: int = 3
+        retry_delay: float = 1.0  # Starting delay for exponential backoff
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                # Try to load cached session first
+                session_cache = self.session_cache.load(ds_details.id)
+
+                if session_cache is None:
+                    # No valid cache, get new session
+                    logger.debug(f"Fetching new session for {ds_details.slug}")
+                    download_session = self.get_dataset_download_session(ds_details.id)
+                    self.session_cache.save(ds_details.id, download_session)
+                else:
+                    # Use cached session
+                    logger.debug(f"Using cached session for {ds_details.slug}")
+                    download_session = DownloadSession.model_validate(
+                        session_cache.full_session
+                    )
+
+                # Attempt download with current session
+                downloaded_filepath = self.download_dataset_session(
+                    download_session, cache_filepath
+                )
+
+                # Success: create symlink and cleanup cache
+                alias_filepath = self.cache_dir.joinpath(download_session.filename)
+                alias_filepath.unlink(missing_ok=True)
+                os.symlink(downloaded_filepath, alias_filepath)
+
+                # Remove session cache after successful completion
+                self.session_cache.clear(ds_details.id)
+
+                logger.info(f"Dataset {ds_details.slug} downloaded successfully")
+                return cache_filepath
+
+            except SessionExpiredError:
+                # Session expired (403) - refresh and retry immediately
+                logger.warning(
+                    f"Session expired for {ds_details.slug}, refreshing session..."
+                )
+                download_session = self.get_dataset_download_session(ds_details.id)
+                self.session_cache.save(ds_details.id, download_session)
+                # Don't count this as a retry attempt - just refresh and continue
+                continue
+
+            except (
+                httpx.ConnectError,
+                httpx.TimeoutException,
+                httpx.NetworkError,
+            ) as e:
+                # Network errors - retry with backoff
+                if attempt < max_retries:
+                    logger.warning(
+                        f"Download attempt {attempt}/{max_retries} failed: {e}. "
+                        f"Retrying in {retry_delay:.1f}s..."
+                    )
+                    import time
+
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                else:
+                    logger.error(f"Download failed after {max_retries} attempts: {e}")
+                    raise
+
+        # This should never be reached due to exception or return in loop
+        raise RuntimeError(
+            "Unexpected error: download_dataset_with_resume exited retry loop without success"  # noqa: E501
+        )
 
     @retry(
         stop=stop_after_attempt(3),
@@ -142,55 +216,46 @@ class MozillaDataCollectiveClient(httpx.Client):
                 f"Found existing temp file, resuming from byte {resume_from_byte}"
             )
 
-        # Get file size and check if server supports range requests
-        try:
-            head_response = self.head(url)
-            total_size = int(head_response.headers.get("content-length", 0))
-            supports_range = head_response.headers.get("accept-ranges") == "bytes"
-        except Exception:
-            # If HEAD request fails, fall back to GET request info
-            total_size = download_session.sizeBytes or 0
-            supports_range = False
-            logger.debug("HEAD request failed, assuming no range support")
-
-        # If we have a partial file but server doesn't support range, start over
-        if resume_from_byte > 0 and not supports_range:
-            logger.warning("Server doesn't support range requests, restarting download")
-            temp_output.unlink(missing_ok=True)
-            resume_from_byte = 0
-
-        # If we're resuming, validate the partial file isn't larger than total
-        if resume_from_byte >= total_size and total_size > 0:
-            logger.warning(
-                "Partial file seems complete or corrupted, restarting download"
-            )
-            temp_output.unlink(missing_ok=True)
-            resume_from_byte = 0
+        # Initialize total_size from session (will be verified/updated from response)
+        total_size: int = download_session.sizeBytes or 0
 
         logger.debug(f"Downloading '{url}' to '{output}' (temp: '{temp_output}')")
-        logger.debug(f"Resume from byte: {resume_from_byte}, Total size: {total_size}")
+        logger.debug(
+            f"Resume from byte: {resume_from_byte}, Expected total size: {total_size}"
+        )
 
         try:
             # Prepare headers for range request if resuming
-            headers = {}
+            headers: dict[str, str] = {}
             if resume_from_byte > 0:
                 headers["Range"] = f"bytes={resume_from_byte}-"
 
             with self.stream("GET", url, auth=None, headers=headers) as response:
                 if resume_from_byte > 0:
-                    # Expect 206 Partial Content for range requests
+                    # Check server's response to Range request
                     if response.status_code == 206:
+                        # Partial Content - range request succeeded
                         logger.debug("Successfully resumed partial download")
                     elif response.status_code == 200:
-                        # Server ignored range header, restart download
+                        # OK - server ignored Range header (doesn't support resume)
                         logger.warning(
-                            "Server ignored range request, restarting download"
+                            "Server doesn't support range requests, restarting download"
                         )
                         temp_output.unlink(missing_ok=True)
                         resume_from_byte = 0
+                    elif response.status_code in (401, 403):
+                        # Session expired - raise specific exception for refresh
+                        raise SessionExpiredError(
+                            f"Download session expired (HTTP {response.status_code})"
+                        )
                     else:
                         response.raise_for_status()
                 else:
+                    # Initial request, should be 200
+                    if response.status_code in (401, 403):
+                        raise SessionExpiredError(
+                            f"Download session expired (HTTP {response.status_code})"
+                        )
                     response.raise_for_status()
 
                 # Get actual total size from response if not known
@@ -259,6 +324,9 @@ class MozillaDataCollectiveAsyncClient(httpx.AsyncClient):
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
+        # Initialize session cache manager
+        self.session_cache = SessionCacheManager(self.cache_dir)
+
         auth = BearerAuth(api_key)
         headers = json.loads(json.dumps(kwargs.pop("headers", None) or {}))
 
@@ -296,22 +364,95 @@ class MozillaDataCollectiveAsyncClient(httpx.AsyncClient):
         return DownloadSession.model_validate(await response.json())
 
     async def download_dataset(self, dataset_id: str) -> Path:
+        """Download dataset with smart resume and automatic session refresh (async).
+
+        Features:
+        - Loads cached session if available and valid
+        - Automatically refreshes expired sessions (403 errors)
+        - Retries network errors up to 3 times with exponential backoff
+        - Cleans up session cache on successful completion
+        """
+        import asyncio
+
         ds_details = await self.get_dataset_details(dataset_id)
         cache_filepath = self.cache_dir.joinpath(f"{ds_details.id}")
 
+        # Return early if already downloaded
         if cache_filepath.is_file():
             logger.debug(f"Dataset {ds_details.slug} found in cache")
             return cache_filepath
-        else:
-            download_session = await self.get_dataset_download_session(ds_details.id)
-            downloaded_filepath = await self.download_dataset_session(
-                download_session, cache_filepath
-            )
-            alias_filepath = self.cache_dir.joinpath(download_session.filename)
-            alias_filepath.unlink(missing_ok=True)
-            os.symlink(downloaded_filepath, alias_filepath)
 
-            return cache_filepath
+        max_retries: int = 3
+        retry_delay: float = 1.0  # Starting delay for exponential backoff
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                # Try to load cached session first
+                session_cache = self.session_cache.load(ds_details.id)
+
+                if session_cache is None:
+                    # No valid cache, get new session
+                    logger.debug(f"Fetching new session for {ds_details.slug}")
+                    download_session = await self.get_dataset_download_session(
+                        ds_details.id
+                    )
+                    self.session_cache.save(ds_details.id, download_session)
+                else:
+                    # Use cached session
+                    logger.debug(f"Using cached session for {ds_details.slug}")
+                    download_session = DownloadSession.model_validate(
+                        session_cache.full_session
+                    )
+
+                # Attempt download with current session
+                downloaded_filepath = await self.download_dataset_session(
+                    download_session, cache_filepath
+                )
+
+                # Success: create symlink and cleanup cache
+                alias_filepath = self.cache_dir.joinpath(download_session.filename)
+                alias_filepath.unlink(missing_ok=True)
+                os.symlink(downloaded_filepath, alias_filepath)
+
+                # Remove session cache after successful completion
+                self.session_cache.clear(ds_details.id)
+
+                logger.info(f"Dataset {ds_details.slug} downloaded successfully")
+                return cache_filepath
+
+            except SessionExpiredError:
+                # Session expired (403) - refresh and retry immediately
+                logger.warning(
+                    f"Session expired for {ds_details.slug}, refreshing session..."
+                )
+                download_session = await self.get_dataset_download_session(
+                    ds_details.id
+                )
+                self.session_cache.save(ds_details.id, download_session)
+                # Don't count this as a retry attempt - just refresh and continue
+                continue
+
+            except (
+                httpx.ConnectError,
+                httpx.TimeoutException,
+                httpx.NetworkError,
+            ) as e:
+                # Network errors - retry with backoff
+                if attempt < max_retries:
+                    logger.warning(
+                        f"Download attempt {attempt}/{max_retries} failed: {e}. "
+                        f"Retrying in {retry_delay:.1f}s..."
+                    )
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                else:
+                    logger.error(f"Download failed after {max_retries} attempts: {e}")
+                    raise
+
+        # This should never be reached due to exception or return in loop
+        raise RuntimeError(
+            "Unexpected error: download_dataset_with_resume exited retry loop without success"  # noqa: E501
+        )
 
     async def download_dataset_session(
         self, download_session: DownloadSession, output: Path | str
@@ -335,55 +476,46 @@ class MozillaDataCollectiveAsyncClient(httpx.AsyncClient):
                 f"Found existing temp file, resuming from byte {resume_from_byte}"
             )
 
-        # Get file size and check if server supports range requests
-        try:
-            head_response = await self.head(url)
-            total_size = int(head_response.headers.get("content-length", 0))
-            supports_range = head_response.headers.get("accept-ranges") == "bytes"
-        except Exception:
-            # If HEAD request fails, fall back to GET request info
-            total_size = download_session.sizeBytes or 0
-            supports_range = False
-            logger.debug("HEAD request failed, assuming no range support")
-
-        # If we have a partial file but server doesn't support range, start over
-        if resume_from_byte > 0 and not supports_range:
-            logger.warning("Server doesn't support range requests, restarting download")
-            temp_filepath.unlink(missing_ok=True)
-            resume_from_byte = 0
-
-        # If we're resuming, validate the partial file isn't larger than total
-        if resume_from_byte >= total_size and total_size > 0:
-            logger.warning(
-                "Partial file seems complete or corrupted, restarting download"
-            )
-            temp_filepath.unlink(missing_ok=True)
-            resume_from_byte = 0
+        # Initialize total_size from session (will be verified/updated from response)
+        total_size: int = download_session.sizeBytes or 0
 
         logger.info(f"Downloading dataset {download_session.filename}")
-        logger.debug(f"Resume from byte: {resume_from_byte}, Total size: {total_size}")
+        logger.debug(
+            f"Resume from byte: {resume_from_byte}, Expected total size: {total_size}"
+        )
 
         try:
             # Prepare headers for range request if resuming
-            headers = {}
+            headers: dict[str, str] = {}
             if resume_from_byte > 0:
                 headers["Range"] = f"bytes={resume_from_byte}-"
 
             async with self.stream("GET", url, auth=None, headers=headers) as response:
                 if resume_from_byte > 0:
-                    # Expect 206 Partial Content for range requests
+                    # Check server's response to Range request
                     if response.status_code == 206:
+                        # Partial Content - range request succeeded
                         logger.debug("Successfully resumed partial download")
                     elif response.status_code == 200:
-                        # Server ignored range header, restart download
+                        # OK - server ignored Range header (doesn't support resume)
                         logger.warning(
-                            "Server ignored range request, restarting download"
+                            "Server doesn't support range requests, restarting download"
                         )
                         temp_filepath.unlink(missing_ok=True)
                         resume_from_byte = 0
+                    elif response.status_code in (401, 403):
+                        # Session expired - raise specific exception for refresh
+                        raise SessionExpiredError(
+                            f"Download session expired (HTTP {response.status_code})"
+                        )
                     else:
                         response.raise_for_status()
                 else:
+                    # Initial request, should be 200
+                    if response.status_code in (401, 403):
+                        raise SessionExpiredError(
+                            f"Download session expired (HTTP {response.status_code})"
+                        )
                     response.raise_for_status()
 
                 # Get actual total size from response if not known
