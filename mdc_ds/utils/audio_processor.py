@@ -38,6 +38,9 @@ class AudioProcessor:
         audio_seg.export(mp3_io, format="mp3", bitrate="128k")
         audio_bytes = mp3_io.getvalue()
 
+        audio_tar_obj.close()
+        del audio_seg
+
         # Return the processed audio bytes
         return {"audio": audio_bytes, "duration": duration}
 
